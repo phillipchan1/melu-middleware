@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const personalizationRouter = require('./src/routes/personalization');
+const onboardingRouter = require('./src/routes/onboarding');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,11 +24,13 @@ app.get('/api', (req, res) => {
       health: '/health',
       api: '/api',
       personalizationRespond: '/api/personalization/respond',
+      onboardingSubmit: '/api/onboarding/submit',
     },
   });
 });
 
 app.use('/api/personalization', personalizationRouter);
+app.use('/api/onboarding', onboardingRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not Found' });
@@ -37,7 +40,7 @@ app.use((err, req, res, next) => {
   console.error(err.stack || err);
   res.status(500).json({
     error: 'Internal Server Error',
-    details: process.env.NODE_ENV === 'development' ? err.message : undefined,
+    details: err.message,
   });
 });
 

@@ -7,15 +7,18 @@ function getAzureOpenAIClient() {
 
   const apiKey = process.env.AZURE_OPENAI_API_KEY;
   const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
+  const deployment = process.env.AZURE_OPENAI_DEPLOYMENT;
   const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2024-10-21';
 
-  if (!apiKey || !endpoint) {
-    throw new Error('Missing Azure OpenAI config. Set AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT.');
+  if (!apiKey || !endpoint || !deployment) {
+    throw new Error('Missing Azure OpenAI config. Set AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, and AZURE_OPENAI_DEPLOYMENT.');
   }
+
+  const baseUrl = `${endpoint.replace(/\/$/, '')}/openai/deployments/${deployment}`;
 
   client = new OpenAI({
     apiKey,
-    baseURL: `${endpoint.replace(/\/$/, '')}/openai`,
+    baseURL: baseUrl,
     defaultQuery: { 'api-version': apiVersion },
     defaultHeaders: { 'api-key': apiKey },
   });
@@ -41,6 +44,33 @@ async function createPersonalizationResponse(messages) {
   return response.choices?.[0]?.message?.content || '{}';
 }
 
+function isAzureConfigured() {
+  return !!(
+    process.env.AZURE_OPENAI_API_KEY &&
+    process.env.AZURE_OPENAI_ENDPOINT &&
+    process.env.AZURE_OPENAI_DEPLOYMENT
+  );
+}
+
+async function createJsonCompletion(messages, temperature = 0.5) {
+  if (!isAzureConfigured()) {
+    throw new Error(
+      'Azure OpenAI not configured. Set AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, and AZURE_OPENAI_DEPLOYMENT in .env',
+    );
+  }
+  const deployment = process.env.AZURE_OPENAI_DEPLOYMENT;
+  const azure = getAzureOpenAIClient();
+  const response = await azure.chat.completions.create({
+    model: deployment,
+    temperature,
+    response_format: { type: 'json_object' },
+    messages,
+  });
+  return response.choices?.[0]?.message?.content || '{}';
+}
+
 module.exports = {
   createPersonalizationResponse,
+  createJsonCompletion,
+  isAzureConfigured,
 };
