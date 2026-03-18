@@ -4,6 +4,7 @@ require('dotenv').config();
 
 const personalizationRouter = require('./src/routes/personalization');
 const onboardingRouter = require('./src/routes/onboarding');
+const profileRouter = require('./src/routes/profile');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,12 +26,14 @@ app.get('/api', (req, res) => {
       api: '/api',
       personalizationRespond: '/api/personalization/respond',
       onboardingSubmit: '/api/onboarding/submit',
+      profileChefCard: '/api/profile/chef-card',
     },
   });
 });
 
 app.use('/api/personalization', personalizationRouter);
 app.use('/api/onboarding', onboardingRouter);
+app.use('/api/profile', profileRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not Found' });

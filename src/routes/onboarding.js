@@ -9,11 +9,17 @@ const {
   getBuildName,
   computeOverallScore,
 } = require('../services/onboardingScoring');
+const { supabase, isSupabaseConfigured, getUserIdFromRequest } = require('../lib/supabase');
 
 const router = express.Router();
 
 router.post('/submit', async (req, res, next) => {
   try {
+    const userId = await getUserIdFromRequest(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const answers = req.body || {};
 
     const scores = scoreFromStructured(answers);
@@ -85,16 +91,33 @@ router.post('/submit', async (req, res, next) => {
       chefCard = buildMockChefCard(buildName);
     }
 
+    const chefCardPayload = {
+      buildName,
+      overallScore,
+      tagline: chefCard.tagline,
+      comparisons: chefCard.comparisons || [],
+      dimensionScores: finalScores,
+      cuisineTags,
+    };
+
+    if (isSupabaseConfigured && supabase) {
+      const { error: dbError } = await supabase.from('profiles').upsert(
+        {
+          user_id: userId,
+          chef_card: chefCardPayload,
+          onboarding_answers: answers,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' }
+      );
+      if (dbError) {
+        console.warn('Failed to persist chef card:', dbError.message);
+      }
+    }
+
     res.json({
       ok: true,
-      chefCard: {
-        buildName,
-        overallScore,
-        tagline: chefCard.tagline,
-        comparisons: chefCard.comparisons || [],
-        dimensionScores: finalScores,
-        cuisineTags,
-      },
+      chefCard: chefCardPayload,
       profile: {
         ...answers,
         parsedFreeText: llmParse,
