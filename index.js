@@ -9,7 +9,37 @@ const profileRouter = require('./src/routes/profile');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:5174')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const allowedPatterns = (process.env.ALLOWED_ORIGIN_PATTERNS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+  .map((p) => new RegExp(p));
+
+function isOriginAllowed(origin) {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  return allowedPatterns.some((re) => re.test(origin));
+}
+
+const corsOptions = {
+  origin: (origin, cb) => {
+    if (isOriginAllowed(origin)) {
+      cb(null, origin || true);
+    } else {
+      cb(null, false);
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 204,
+};
+app.use(cors(corsOptions));
 app.use(express.json());
 
 app.get('/health', (req, res) => {
@@ -47,6 +77,10 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Melu Middleware API running on port ${PORT}`);
-});
+// Export for Vercel serverless; only listen when running locally
+module.exports = app;
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Melu Middleware API running on port ${PORT}`);
+  });
+}
