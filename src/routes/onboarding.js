@@ -10,6 +10,12 @@ const {
   computeOverallScore,
 } = require('../services/onboardingScoring');
 const { supabase, isSupabaseConfigured, getUserIdFromRequest } = require('../lib/supabase');
+const {
+  normalizeOnboardingAnswers,
+  staplesListToDescription,
+  getStaplesList,
+} = require('../lib/normalizeOnboardingAnswers');
+const { replaceUserStaples } = require('../lib/staplesDb');
 
 const router = express.Router();
 
@@ -20,7 +26,9 @@ router.post('/submit', async (req, res, next) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const answers = req.body || {};
+    const answers = normalizeOnboardingAnswers(req.body || {});
+    const staplesList = getStaplesList(answers);
+    const staplesText = staplesListToDescription(staplesList);
 
     const scores = scoreFromStructured(answers);
 
@@ -29,16 +37,17 @@ router.post('/submit', async (req, res, next) => {
       staples_complexity: 'moderate',
       aspiration_specificity: 'none',
       aspiration_ambition: 'low',
-      chaos_night_class: 'simple_home_cook',
     };
 
-    const hasFreeText = answers.q6 || answers.q7 || answers.q11;
+    const hasFreeText =
+      (answers.q8 && String(answers.q8).trim()) ||
+      staplesText ||
+      (staplesList.some((m) => m && m.custom));
     if (hasFreeText && isAzureConfigured()) {
       try {
         const prompt = buildParseFreeTextPrompt({
-          staples: answers.q6,
-          aspiration: answers.q7,
-          chaos_night: answers.q11,
+          staples: staplesText,
+          aspiration: answers.q8,
         });
         const raw = await createJsonCompletion([{ role: 'user', content: prompt }], 0.3);
         const parsed = JSON.parse(raw);
@@ -53,9 +62,12 @@ router.post('/submit', async (req, res, next) => {
     const buildName = getBuildName(primary, secondary);
     const overallScore = computeOverallScore(finalScores);
 
+    const rotationCuisines = [...new Set(staplesList.map((m) => m && m.cuisine).filter(Boolean))];
     const cuisineTags = llmParse.staples_cuisines?.length
       ? llmParse.staples_cuisines
-      : ['American'];
+      : rotationCuisines.length
+        ? rotationCuisines.slice(0, 3)
+        : ['American'];
 
     const chefCardProfile = {
       build_name: buildName,
@@ -67,11 +79,10 @@ router.post('/submit', async (req, res, next) => {
       score_nourishment: finalScores.Nourishment,
       top_two_dimensions: `${primary}, ${secondary}`,
       cuisine_tags: cuisineTags,
-      staples: answers.q6 || '',
-      aspiration: answers.q7 || '',
-      chaos_night: answers.q11 || '',
+      staples: staplesText,
+      aspiration: answers.q8 || '',
       discovery_dial: answers.q9 || '',
-      nutrition_priority: answers.q3b || '',
+      nutrition_priority: answers.q4 || '',
     };
 
     let chefCard;
@@ -112,6 +123,12 @@ router.post('/submit', async (req, res, next) => {
       );
       if (dbError) {
         console.warn('Failed to persist chef card:', dbError.message);
+      } else {
+        try {
+          await replaceUserStaples(userId, staplesList);
+        } catch (syncErr) {
+          console.warn('Failed to sync staples:', syncErr.message);
+        }
       }
     }
 
