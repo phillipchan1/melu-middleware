@@ -1,12 +1,10 @@
-const GENERATE_CHEF_CARD_PROMPT = `You are generating a Chef Card for a family meal planning app called Melu. The Chef Card is shown to the user at the end of onboarding as their personalized cooking identity.
+/** Comparisons-only completion (tagline uses chefTagline.js). */
+const GENERATE_CHEF_CARD_COMPARISONS_PROMPT = `You are generating Chef Card comparison rows for a family meal planning app called Melu.
 
 Return only a valid JSON object. No markdown, no explanation.
 
-The Family Profile below includes their 5 dimension scores (0–100), their build name, their rotation summary, and aspiration answer.
-
 Return exactly this structure:
 {
-  "tagline": string,
   "comparisons": [
     { "name": string, "desc": string, "match": number },
     { "name": string, "desc": string, "match": number },
@@ -15,7 +13,6 @@ Return exactly this structure:
 }
 
 Rules:
-- tagline: one sentence, second person ("You're..."), max 25 words. Must reference something real — their rotation meals, or their aspiration. Warm and specific. Not generic. Bad example: "You're a home cook who loves feeding your family." Good example: "You've got tacos and pasta locked — Melu is here to build out the rest of the week around them."
 - comparisons: 3 cooking personality archetypes. These are fun, food-native personas — not real people. Each has a name, a one-sentence desc (max 15 words), and a match integer.
 - match values must be in descending order, range 70–97.
 - Archetype names should be evocative and kitchen-native (e.g. "The Sunday Slow Roaster", "The 20-Minute Closer", "The Flavor Chaser"). No celebrity names. No chef-title names.
@@ -27,12 +24,12 @@ Family Profile:
 - Top two dimensions: {{top_two_dimensions}}
 - Cuisine tags: {{cuisine_tags}}
 - Rotation summary: {{staples}}
-- Aspiration: {{aspiration}}
-- Discovery dial: {{discovery_dial}}
+- Aspiration summary: {{aspiration}}
+- Discovery pace (1-5): {{discovery_dial}}
 - Nutrition priority: {{nutrition_priority}}`;
 
-function buildGenerateChefCardPrompt(profile) {
-  return GENERATE_CHEF_CARD_PROMPT
+function buildGenerateChefCardComparisonsPrompt(profile) {
+  return GENERATE_CHEF_CARD_COMPARISONS_PROMPT
     .replace('{{build_name}}', profile.build_name || '')
     .replace('{{overall_score}}', String(profile.overall_score ?? 0))
     .replace('{{score_comfort}}', String(profile.score_comfort ?? 0))
@@ -48,7 +45,16 @@ function buildGenerateChefCardPrompt(profile) {
     .replace('{{nutrition_priority}}', profile.nutrition_priority || '');
 }
 
+/** @deprecated Use buildGenerateChefCardComparisonsPrompt */
+const GENERATE_CHEF_CARD_PROMPT = GENERATE_CHEF_CARD_COMPARISONS_PROMPT;
+
+function buildGenerateChefCardPrompt(profile) {
+  return buildGenerateChefCardComparisonsPrompt(profile);
+}
+
 module.exports = {
   GENERATE_CHEF_CARD_PROMPT,
+  GENERATE_CHEF_CARD_COMPARISONS_PROMPT,
   buildGenerateChefCardPrompt,
+  buildGenerateChefCardComparisonsPrompt,
 };

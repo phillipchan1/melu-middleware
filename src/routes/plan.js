@@ -3,6 +3,7 @@ const { createJsonCompletion, isAzureConfigured } = require('../services/azureOp
 const { buildPlanPrompt } = require('../prompts/planGeneration');
 const { supabase, isSupabaseConfigured, getUserIdFromRequest } = require('../lib/supabase');
 const { fetchUserStaples } = require('../lib/staplesDb');
+const { fetchUserMealsForPlan, stapleToCatalogSlug } = require('../lib/userMealsDb');
 
 const router = express.Router();
 
@@ -13,6 +14,35 @@ function getMondayOfWeek(d) {
   const monday = new Date(date);
   monday.setDate(diff);
   return monday.toISOString().slice(0, 10);
+}
+
+async function loadMealsByCatalogSlugs(staplesLike) {
+  const slugs = [...new Set((staplesLike || []).map(stapleToCatalogSlug).filter(Boolean))];
+  if (slugs.length === 0) return [];
+  const { data, error } = await supabase
+    .from('meals')
+    .select('id, name, cuisine, catalog_slug')
+    .in('catalog_slug', slugs);
+  if (error) throw error;
+  return data || [];
+}
+
+/** Normalize LLM JSON to client shape (camelCase). */
+function normalizeMealsForClient(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr.map((m) => ({
+    day: m.day,
+    mealId: m.meal_id ?? m.mealId,
+    name: m.name,
+    description: m.description,
+    cookTime: m.cookTime,
+    servings: m.servings,
+    cuisine: m.cuisine,
+    difficulty: m.difficulty,
+    ingredients: m.ingredients,
+    reasonTag: m.reason_tag ?? m.reasonTag,
+    sourceType: m.source_type ?? m.sourceType,
+  }));
 }
 
 router.post('/generate', async (req, res, next) => {
@@ -32,7 +62,7 @@ router.post('/generate', async (req, res, next) => {
 
     const { data: profileRow, error: profileError } = await supabase
       .from('profiles')
-      .select('chef_card, onboarding_answers')
+      .select('chef_card, onboarding_answers, discovery_pace')
       .eq('user_id', userId)
       .single();
 
@@ -47,9 +77,40 @@ router.post('/generate', async (req, res, next) => {
       console.warn('fetchUserStaples:', e.message);
     }
 
+    let rotation_meals = [];
+    let aspiration_meals = [];
+    try {
+      const um = await fetchUserMealsForPlan(userId);
+      rotation_meals = um.rotation;
+      aspiration_meals = um.aspiration;
+    } catch (e) {
+      console.warn('fetchUserMealsForPlan:', e.message);
+    }
+
+    if (rotation_meals.length === 0 && staplesFromDb.length) {
+      try {
+        rotation_meals = await loadMealsByCatalogSlugs(staplesFromDb);
+      } catch (e) {
+        console.warn('loadMealsByCatalogSlugs rotation:', e.message);
+      }
+    }
+
+    const answers = profileRow.onboarding_answers || {};
+    const aspirationsClient = Array.isArray(answers.aspirations) ? answers.aspirations : [];
+    if (aspiration_meals.length === 0 && aspirationsClient.length) {
+      try {
+        aspiration_meals = await loadMealsByCatalogSlugs(aspirationsClient);
+      } catch (e) {
+        console.warn('loadMealsByCatalogSlugs aspiration:', e.message);
+      }
+    }
+
     const profile = {
       chef_card: profileRow.chef_card || {},
-      onboarding_answers: profileRow.onboarding_answers || {},
+      onboarding_answers: answers,
+      discovery_pace: profileRow.discovery_pace,
+      rotation_meals,
+      aspiration_meals,
       staples: staplesFromDb,
     };
 
@@ -125,7 +186,7 @@ router.post('/generate', async (req, res, next) => {
       plan: {
         id: insertRow.id,
         weekStart,
-        meals,
+        meals: normalizeMealsForClient(meals),
       },
     });
   } catch (error) {

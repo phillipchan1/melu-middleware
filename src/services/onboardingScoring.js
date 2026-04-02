@@ -83,10 +83,14 @@ function scoreFromStructured(answers) {
     scores.Speed = q6Scores[answers.q5];
   }
 
-  // Q9 — adventurousness (1-5) -> Discovery
+  // discovery_pace or legacy Q9 — adventurousness (1-5) -> Discovery
   const q9Scores = { 1: 20, 2: 40, 3: 60, 4: 80, 5: 95 };
-  if (answers.q9 && q9Scores[answers.q9] !== undefined) {
-    scores.Discovery = q9Scores[answers.q9];
+  let paceKey = answers.q9;
+  if (answers.discoveryPace != null && Number.isFinite(Number(answers.discoveryPace))) {
+    paceKey = String(Math.min(5, Math.max(1, Math.round(Number(answers.discoveryPace)))));
+  }
+  if (paceKey && q9Scores[paceKey] !== undefined) {
+    scores.Discovery = q9Scores[paceKey];
   }
 
   // Staples count -> Comfort (more known meals = higher comfort)

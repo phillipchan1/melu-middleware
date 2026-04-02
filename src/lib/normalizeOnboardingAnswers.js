@@ -2,6 +2,17 @@
  * Maps legacy onboarding payloads to the current shape.
  * Staples list is stored as `staples` (canonical) and duplicated on `q7` for backward compatibility.
  */
+function parseDiscoveryPaceRaw(raw) {
+  if (raw == null || typeof raw !== 'object') return 3;
+  const dp = raw.discoveryPace;
+  if (dp != null && Number.isFinite(Number(dp))) {
+    return Math.min(5, Math.max(1, Math.round(Number(dp))));
+  }
+  const q9 = raw.q9 != null ? parseInt(String(raw.q9), 10) : NaN;
+  if (Number.isFinite(q9)) return Math.min(5, Math.max(1, q9));
+  return 3;
+}
+
 function baseFieldsFromRaw(raw) {
   return {
     q1: raw.q1 || { adults: 2, kids: 0, kidAges: [] },
@@ -12,6 +23,7 @@ function baseFieldsFromRaw(raw) {
     q6: raw.q5 && typeof raw.q5 === 'string' ? raw.q5 : raw.q6 || '',
     q8: typeof raw.q8 === 'string' ? raw.q8 : '',
     q9: raw.q9 || '',
+    discoveryPace: parseDiscoveryPaceRaw(raw),
   };
 }
 
@@ -27,6 +39,8 @@ function normalizeOnboardingAnswers(raw) {
     stapleList = raw.q7;
   }
 
+  const aspirationsRaw = Array.isArray(raw.aspirations) ? raw.aspirations : [];
+
   if (stapleList) {
     const base = baseFieldsFromRaw(raw);
     const q8 =
@@ -40,6 +54,8 @@ function normalizeOnboardingAnswers(raw) {
       q8,
       staples: stapleList,
       q7: stapleList,
+      aspirations: aspirationsRaw,
+      discoveryPace: parseDiscoveryPaceRaw(raw),
     };
   }
 
@@ -61,6 +77,8 @@ function normalizeOnboardingAnswers(raw) {
     q8: typeof raw.q7 === 'string' ? raw.q7 : raw.q8 || '',
     staples: staplesFromLegacyText,
     q7: staplesFromLegacyText,
+    aspirations: aspirationsRaw,
+    discoveryPace: parseDiscoveryPaceRaw(raw),
   };
 }
 
@@ -76,6 +94,10 @@ function staplesListToDescription(staples) {
     .join('; ');
 }
 
+function aspirationsListToDescription(aspirations) {
+  return staplesListToDescription(aspirations);
+}
+
 /** Prefer canonical staples array; fall back to legacy q7. */
 function getStaplesList(answers) {
   if (!answers || typeof answers !== 'object') return [];
@@ -84,9 +106,17 @@ function getStaplesList(answers) {
   return [];
 }
 
+function getAspirationsList(answers) {
+  if (!answers || typeof answers !== 'object') return [];
+  if (Array.isArray(answers.aspirations) && answers.aspirations.length) return answers.aspirations;
+  return [];
+}
+
 module.exports = {
   normalizeOnboardingAnswers,
   staplesListToDescription,
   rotationToStaplesDescription: staplesListToDescription,
+  aspirationsListToDescription,
   getStaplesList,
+  getAspirationsList,
 };
