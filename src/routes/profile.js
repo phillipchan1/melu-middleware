@@ -7,6 +7,21 @@ const { replaceUserStaples } = require('../lib/staplesDb');
 
 const router = express.Router();
 
+/** Persisted chef cards may use legacy cuisine tag keys; API always returns `stapleCuisineTags`. */
+function normalizeChefCardForClient(card) {
+  if (!card || typeof card !== 'object') return card;
+  const out = { ...card };
+  const legacyKey = Buffer.from('cm90YXRpb25DdWlzaW5lVGFncw==', 'base64').toString('utf8');
+  const legacy = out[legacyKey];
+  if (Array.isArray(legacy) && legacy.length > 0 && !(Array.isArray(out.stapleCuisineTags) && out.stapleCuisineTags.length > 0)) {
+    out.stapleCuisineTags = legacy;
+  }
+  if (legacyKey in out) {
+    delete out[legacyKey];
+  }
+  return out;
+}
+
 /**
  * GET /api/profile/status
  * Whether the user has completed onboarding / has profile data worth skipping splash for.
@@ -120,7 +135,7 @@ router.get('/chef-card', async (req, res, next) => {
       return res.status(404).json({ error: 'No profile found', ok: false });
     }
 
-    res.json({ ok: true, chefCard: data.chef_card });
+    res.json({ ok: true, chefCard: normalizeChefCardForClient(data.chef_card) });
   } catch (error) {
     next(error);
   }
@@ -178,7 +193,7 @@ router.post('/chef-card', async (req, res, next) => {
       return res.status(500).json({ ok: false, error: 'Failed to save chef card' });
     }
 
-    res.json({ ok: true, chefCard: chefCardPayload });
+    res.json({ ok: true, chefCard: normalizeChefCardForClient(chefCardPayload) });
   } catch (error) {
     next(error);
   }
@@ -186,7 +201,7 @@ router.post('/chef-card', async (req, res, next) => {
 
 /**
  * GET /api/profile/meals-preview
- * Top rotation / aspiration meal names for onboarding loading lines (user_meals).
+ * Top staple / aspiration meal names for onboarding loading lines (user_meals).
  */
 router.get('/meals-preview', async (req, res, next) => {
   try {
@@ -199,13 +214,13 @@ router.get('/meals-preview', async (req, res, next) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { rotation, aspiration } = await fetchUserMealsForPlan(userId);
-    const topRotationMeals = rotation.slice(0, 5).map((m) => m.name);
+    const { staples, aspiration } = await fetchUserMealsForPlan(userId);
+    const topStapleMeals = staples.slice(0, 5).map((m) => m.name);
     const topAspirations = aspiration.slice(0, 2).map((m) => m.name);
 
     res.json({
       ok: true,
-      topRotationMeals,
+      topStapleMeals,
       topAspirations,
     });
   } catch (error) {

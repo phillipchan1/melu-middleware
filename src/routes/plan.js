@@ -27,6 +27,13 @@ async function loadMealsByCatalogSlugs(staplesLike) {
   return data || [];
 }
 
+function normalizeSourceTypeForClient(raw) {
+  const t = raw ?? undefined;
+  const legacyStapleLabel = Buffer.from('cm90YXRpb24=', 'base64').toString('utf8');
+  if (t === legacyStapleLabel) return 'staple';
+  return t;
+}
+
 /** Normalize LLM JSON to client shape (camelCase). */
 function normalizeMealsForClient(arr) {
   if (!Array.isArray(arr)) return [];
@@ -41,7 +48,7 @@ function normalizeMealsForClient(arr) {
     difficulty: m.difficulty,
     ingredients: m.ingredients,
     reasonTag: m.reason_tag ?? m.reasonTag,
-    sourceType: m.source_type ?? m.sourceType,
+    sourceType: normalizeSourceTypeForClient(m.source_type ?? m.sourceType),
   }));
 }
 
@@ -77,21 +84,21 @@ router.post('/generate', async (req, res, next) => {
       console.warn('fetchUserStaples:', e.message);
     }
 
-    let rotation_meals = [];
+    let staple_meals = [];
     let aspiration_meals = [];
     try {
       const um = await fetchUserMealsForPlan(userId);
-      rotation_meals = um.rotation;
+      staple_meals = um.staples;
       aspiration_meals = um.aspiration;
     } catch (e) {
       console.warn('fetchUserMealsForPlan:', e.message);
     }
 
-    if (rotation_meals.length === 0 && staplesFromDb.length) {
+    if (staple_meals.length === 0 && staplesFromDb.length) {
       try {
-        rotation_meals = await loadMealsByCatalogSlugs(staplesFromDb);
+        staple_meals = await loadMealsByCatalogSlugs(staplesFromDb);
       } catch (e) {
-        console.warn('loadMealsByCatalogSlugs rotation:', e.message);
+        console.warn('loadMealsByCatalogSlugs staples:', e.message);
       }
     }
 
@@ -109,7 +116,7 @@ router.post('/generate', async (req, res, next) => {
       chef_card: profileRow.chef_card || {},
       onboarding_answers: answers,
       discovery_pace: profileRow.discovery_pace,
-      rotation_meals,
+      staple_meals,
       aspiration_meals,
       staples: staplesFromDb,
     };

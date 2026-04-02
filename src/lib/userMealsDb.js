@@ -15,10 +15,10 @@ function stapleToCatalogSlug(item) {
 }
 
 /**
- * Replace onboarding-sourced user_meals rows with rotation + aspiration selections.
+ * Replace onboarding-sourced user_meals rows with staple + aspiration selections.
  * // SPEC GAP: staples without a matching public.meals.catalog_slug row are skipped (custom meals).
  */
-async function replaceOnboardingUserMeals(userId, rotationStaples, aspirationStaples) {
+async function replaceOnboardingUserMeals(userId, onboardingStaples, aspirationStaples) {
   if (!supabase) return;
 
   const { error: delErr } = await supabase
@@ -28,9 +28,9 @@ async function replaceOnboardingUserMeals(userId, rotationStaples, aspirationSta
     .eq('source', 'onboarding');
   if (delErr) throw delErr;
 
-  const rotSlugs = (rotationStaples || []).map(stapleToCatalogSlug).filter(Boolean);
+  const stapleSlugs = (onboardingStaples || []).map(stapleToCatalogSlug).filter(Boolean);
   const aspSlugs = (aspirationStaples || []).map(stapleToCatalogSlug).filter(Boolean);
-  const allSlugs = [...new Set([...rotSlugs, ...aspSlugs])];
+  const allSlugs = [...new Set([...stapleSlugs, ...aspSlugs])];
   if (allSlugs.length === 0) return;
 
   const { data: mealRows, error: qErr } = await supabase
@@ -42,13 +42,13 @@ async function replaceOnboardingUserMeals(userId, rotationStaples, aspirationSta
   const slugToId = new Map((mealRows || []).map((r) => [r.catalog_slug, r.id]));
 
   const rows = [];
-  for (const slug of rotSlugs) {
+  for (const slug of stapleSlugs) {
     const mealId = slugToId.get(slug);
     if (!mealId) continue;
     rows.push({
       user_id: userId,
       meal_id: mealId,
-      type: 'rotation',
+      type: 'staple',
       source: 'onboarding',
     });
   }
@@ -69,10 +69,10 @@ async function replaceOnboardingUserMeals(userId, rotationStaples, aspirationSta
 }
 
 /**
- * @returns {{ rotation: Array<{id: string, name: string, cuisine: string, catalog_slug: string, added_at: string}>, aspiration: Array<...> }}
+ * @returns {{ staples: Array<{id: string, name: string, cuisine: string, catalog_slug: string, added_at: string}>, aspiration: Array<...> }}
  */
 async function fetchUserMealsForPlan(userId) {
-  if (!supabase) return { rotation: [], aspiration: [] };
+  if (!supabase) return { staples: [], aspiration: [] };
 
   const { data: umRows, error: umErr } = await supabase
     .from('user_meals')
@@ -80,7 +80,7 @@ async function fetchUserMealsForPlan(userId) {
     .eq('user_id', userId);
 
   if (umErr) throw umErr;
-  if (!umRows || umRows.length === 0) return { rotation: [], aspiration: [] };
+  if (!umRows || umRows.length === 0) return { staples: [], aspiration: [] };
 
   const ids = [...new Set(umRows.map((r) => r.meal_id).filter(Boolean))];
   const { data: mealRows, error: mErr } = await supabase
@@ -91,7 +91,7 @@ async function fetchUserMealsForPlan(userId) {
 
   const idToMeal = new Map((mealRows || []).map((m) => [m.id, m]));
 
-  const rotation = [];
+  const staples = [];
   const aspiration = [];
   for (const row of umRows) {
     const m = idToMeal.get(row.meal_id);
@@ -103,15 +103,15 @@ async function fetchUserMealsForPlan(userId) {
       catalog_slug: m.catalog_slug,
       added_at: row.added_at,
     };
-    if (row.type === 'rotation') rotation.push(entry);
+    if (row.type === 'staple') staples.push(entry);
     else if (row.type === 'aspiration') aspiration.push(entry);
   }
 
   const byAdded = (a, b) => String(a.added_at || '').localeCompare(String(b.added_at || ''));
-  rotation.sort(byAdded);
+  staples.sort(byAdded);
   aspiration.sort(byAdded);
 
-  return { rotation, aspiration };
+  return { staples, aspiration };
 }
 
 module.exports = {

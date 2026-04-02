@@ -31,7 +31,7 @@ function parseDiscoveryPace(answers) {
   return 3;
 }
 
-function topRotationCuisinesFromStaples(staples) {
+function topStapleCuisinesFromStaples(staples) {
   const seen = new Set();
   const out = [];
   for (const m of staples) {
@@ -44,7 +44,7 @@ function topRotationCuisinesFromStaples(staples) {
   return out;
 }
 
-function topRotationMealNamesFromStaples(staples) {
+function topStapleMealNamesFromStaples(staples) {
   return staples
     .filter((m) => m && typeof m.name === 'string')
     .slice(0, 3)
@@ -67,24 +67,24 @@ async function taglineInputsFromUserMealsOrAnswers(userId, answers) {
   const staplesList = getStaplesList(answers);
   const aspirationsList = getAspirationsList(answers);
 
-  let rotationMealNames = topRotationMealNamesFromStaples(staplesList);
-  let rotationCuisineTags = topRotationCuisinesFromStaples(staplesList);
+  let stapleMealNames = topStapleMealNamesFromStaples(staplesList);
+  let stapleCuisineTags = topStapleCuisinesFromStaples(staplesList);
   let aspirationNames = topAspirationNamesFromList(aspirationsList);
 
   try {
-    const { rotation, aspiration } = await fetchUserMealsForPlan(userId);
-    if (rotation.length > 0) {
-      rotationMealNames = rotation.slice(0, 3).map((m) => m.name);
+    const { staples, aspiration } = await fetchUserMealsForPlan(userId);
+    if (staples.length > 0) {
+      stapleMealNames = staples.slice(0, 3).map((m) => m.name);
       const seen = new Set();
       const cuisines = [];
-      for (const r of rotation) {
-        if (r.cuisine && !seen.has(r.cuisine)) {
-          seen.add(r.cuisine);
-          cuisines.push(r.cuisine);
+      for (const s of staples) {
+        if (s.cuisine && !seen.has(s.cuisine)) {
+          seen.add(s.cuisine);
+          cuisines.push(s.cuisine);
           if (cuisines.length >= 3) break;
         }
       }
-      if (cuisines.length > 0) rotationCuisineTags = cuisines;
+      if (cuisines.length > 0) stapleCuisineTags = cuisines;
     }
     if (aspiration.length > 0) {
       aspirationNames = aspiration.slice(0, 2).map((m) => m.name);
@@ -94,8 +94,8 @@ async function taglineInputsFromUserMealsOrAnswers(userId, answers) {
   }
 
   return {
-    rotationMealNames,
-    rotationCuisineTags,
+    stapleMealNames,
+    stapleCuisineTags,
     aspirationNames,
     staplesList,
     aspirationsList,
@@ -151,16 +151,16 @@ async function buildChefCardPayload({ answers, userId }) {
   const buildName = getBuildName(primary, secondary);
   const overallScore = computeOverallScore(finalScores);
 
-  const rotationCuisines = [...new Set(staplesList.map((m) => m && m.cuisine).filter(Boolean))];
+  const cuisinesFromAnswers = [...new Set(staplesList.map((m) => m && m.cuisine).filter(Boolean))];
   const cuisineTags = llmParse.staples_cuisines?.length
     ? llmParse.staples_cuisines
-    : rotationCuisines.length
-      ? rotationCuisines.slice(0, 3)
+    : cuisinesFromAnswers.length
+      ? cuisinesFromAnswers.slice(0, 3)
       : ['American'];
 
   const {
-    rotationMealNames,
-    rotationCuisineTags,
+    stapleMealNames,
+    stapleCuisineTags,
     aspirationNames,
   } = await taglineInputsFromUserMealsOrAnswers(userId, answers);
 
@@ -191,8 +191,8 @@ async function buildChefCardPayload({ answers, userId }) {
     try {
       const taglineUserJson = buildTaglineUserJson({
         build_type: buildName,
-        top_rotation_cuisines: rotationCuisineTags.length ? rotationCuisineTags : cuisineTags.slice(0, 3),
-        top_rotation_meals: rotationMealNames,
+        top_staple_cuisines: stapleCuisineTags.length ? stapleCuisineTags : cuisineTags.slice(0, 3),
+        top_staple_meals: stapleMealNames,
         top_aspirations: aspirationNames,
         discovery_pace: discoveryPace,
       });
@@ -230,7 +230,7 @@ async function buildChefCardPayload({ answers, userId }) {
     comparisons,
     dimensionScores: finalScores,
     cuisineTags,
-    rotationCuisineTags: rotationCuisineTags.length ? rotationCuisineTags : topRotationCuisinesFromStaples(staplesList),
+    stapleCuisineTags: stapleCuisineTags.length ? stapleCuisineTags : topStapleCuisinesFromStaples(staplesList),
     aspirationMeals: aspirationNames,
   };
 

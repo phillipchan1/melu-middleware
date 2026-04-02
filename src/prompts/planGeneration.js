@@ -26,8 +26,8 @@ const Q6_TO_MINUTES = {
  */
 function getSlotAllocation(discoveryPace, totalMeals = 7) {
   const aspirationSlots = Math.min(Math.floor(discoveryPace * 0.6), 3);
-  const rotationSlots = totalMeals - aspirationSlots;
-  return { rotationSlots, aspirationSlots };
+  const stapleSlots = totalMeals - aspirationSlots;
+  return { stapleSlots, aspirationSlots };
 }
 
 const SYSTEM_PROMPT = `You are a meal planning assistant for busy families.
@@ -37,7 +37,7 @@ The "meals" array must contain exactly 7 dinner objects.
 Each object:
 {
   "day": string,              // "Monday" through "Sunday"
-  "meal_id": string,          // UUID from the provided rotation or aspiration catalog lists
+  "meal_id": string,          // UUID from the provided staple or aspiration catalog lists
   "name": string,             // meal name, max 5 words
   "description": string,      // one sentence, max 15 words
   "cookTime": number,         // minutes
@@ -45,7 +45,7 @@ Each object:
   "cuisine": string,
   "difficulty": "easy" | "medium" | "hard",
   "ingredients": string[],    // 4-8 items, scaled to family size
-  "source_type": "rotation" | "aspiration",
+  "source_type": "staple" | "aspiration",
   "reason_tag": string        // plain language; for aspiration slots use exactly: "You said you wanted to try this."
 }`;
 
@@ -95,9 +95,9 @@ function buildPlanPrompt(profile) {
       ? Math.min(5, Math.max(1, Math.round(Number(profile.discovery_pace))))
       : parseInt(a.q9, 10) || 3;
 
-  const { rotationSlots, aspirationSlots } = getSlotAllocation(discoveryPace, 7);
+  const { stapleSlots, aspirationSlots } = getSlotAllocation(discoveryPace, 7);
 
-  const rotationBlock = formatMealsForPrompt(profile.rotation_meals);
+  const stapleBlock = formatMealsForPrompt(profile.staple_meals);
   const aspirationBlock = formatMealsForPrompt(profile.aspiration_meals);
 
   const buildType = cc.buildName || 'The Dependable Dash';
@@ -123,13 +123,13 @@ Nourishment score: ${dimensionNourishment}/100 — higher means prioritize clean
 Discovery pace (1-5): ${discoveryPace}
 
 Slot allocation (hard constraints):
-- Draw exactly ${rotationSlots} meals from the user's rotation list below. Each must use source_type "rotation" and a meal_id from that list.
+- Draw exactly ${stapleSlots} meals from the user's staples list below. Each must use source_type "staple" and a meal_id from that list.
 - Draw exactly ${aspirationSlots} meals from the user's aspiration list below. Each must use source_type "aspiration" and a meal_id from that list.
 - For aspiration slots, introduce one aspiration meal the user has not had in a plan before when possible; calibrate to their skill level and equipment.
 - The reason_tag for every aspiration-slot meal must be exactly: "You said you wanted to try this."
 
-Rotation meals (catalog):
-${rotationBlock}
+Staple meals (catalog):
+${stapleBlock}
 
 Aspiration meals (catalog):
 ${aspirationBlock}
@@ -138,7 +138,7 @@ Generate 7 dinners for Monday through Sunday.
 Vary cuisines — no two meals from the same cuisine unless family profile strongly prefers it.
 Scale all ingredient quantities to ${familySize} servings.
 Every meal must fit within ${maxCookTime} minutes.
-The reason_tag for rotation meals should reference something specific from this family's profile (not generic).`;
+The reason_tag for staple meals should reference something specific from this family's profile (not generic).`;
 
   return {
     system: SYSTEM_PROMPT,

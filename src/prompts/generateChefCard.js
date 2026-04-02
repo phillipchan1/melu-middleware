@@ -23,7 +23,7 @@ Family Profile:
 - Scores — Comfort: {{score_comfort}}, Speed: {{score_speed}}, Boldness: {{score_boldness}}, Discovery: {{score_discovery}}, Nourishment: {{score_nourishment}}
 - Top two dimensions: {{top_two_dimensions}}
 - Cuisine tags: {{cuisine_tags}}
-- Rotation summary: {{staples}}
+- Staples summary: {{staples}}
 - Aspiration summary: {{aspiration}}
 - Discovery pace (1-5): {{discovery_dial}}
 - Nutrition priority: {{nutrition_priority}}`;

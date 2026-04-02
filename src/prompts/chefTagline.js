@@ -13,14 +13,14 @@ The tagline must:
 
 You will receive:
 - build_type: named cook archetype (e.g. "The Quick Fire")
-- top_rotation_cuisines: array of cuisine strings (e.g. ["Italian", "Mexican"])
-- top_rotation_meals: array of up to 3 meal name strings (e.g. ["Pizza", "Enchiladas", "Burgers"])
+- top_staple_cuisines: array of cuisine strings (e.g. ["Italian", "Mexican"])
+- top_staple_meals: array of up to 3 meal name strings (e.g. ["Pizza", "Enchiladas", "Burgers"])
 - top_aspirations: array of up to 2 meal name strings, may be empty (e.g. ["Thai curry"])
 - discovery_pace: integer 1-5
 
 Inputs map from the server as:
-- top_rotation_cuisines — unique cuisine tags from user_meals where type = rotation, max 3
-- top_rotation_meals — meal names from user_meals where type = rotation, ordered by added_at, max 3
+- top_staple_cuisines — unique cuisine tags from user_meals where type = staple, max 3
+- top_staple_meals — meal names from user_meals where type = staple, ordered by added_at, max 3
 - top_aspirations — meal names from user_meals where type = aspiration, ordered by added_at, max 2
 - build_type — from scoring engine output
 - discovery_pace — from profiles.discovery_pace
@@ -34,21 +34,21 @@ Example (with aspirations):
 Example (without aspirations):
 { "tagline": "Pizza, enchiladas, and burgers on lock — Melu has your weeknights handled." }
 
-If top_aspirations is empty, omit any reference to aspirations and write the tagline from rotation identity only.`;
+If top_aspirations is empty, omit any reference to aspirations and write the tagline from staple identity only.`;
 
 /**
  * @param {object} inputs
  * @param {string} inputs.build_type
- * @param {string[]} inputs.top_rotation_cuisines
- * @param {string[]} inputs.top_rotation_meals
+ * @param {string[]} inputs.top_staple_cuisines
+ * @param {string[]} inputs.top_staple_meals
  * @param {string[]} inputs.top_aspirations
  * @param {number} inputs.discovery_pace
  */
 function buildTaglineUserJson(inputs) {
   return JSON.stringify({
     build_type: inputs.build_type,
-    top_rotation_cuisines: inputs.top_rotation_cuisines,
-    top_rotation_meals: inputs.top_rotation_meals,
+    top_staple_cuisines: inputs.top_staple_cuisines,
+    top_staple_meals: inputs.top_staple_meals,
     top_aspirations: inputs.top_aspirations,
     discovery_pace: inputs.discovery_pace,
   });

@@ -115,7 +115,6 @@ function getAspirationsList(answers) {
 module.exports = {
   normalizeOnboardingAnswers,
   staplesListToDescription,
-  rotationToStaplesDescription: staplesListToDescription,
   aspirationsListToDescription,
   getStaplesList,
   getAspirationsList,
