@@ -59,6 +59,8 @@ app.get('/api', (req, res) => {
       personalizationRespond: '/api/personalization/respond',
       onboardingSubmit: '/api/onboarding/submit',
       profileChefCard: '/api/profile/chef-card (GET persisted, POST generate)',
+      profileStatus: '/api/profile/status',
+      profileReset: '/api/profile/reset (POST)',
       profileMealsPreview: '/api/profile/meals-preview',
       planGenerate: '/api/plan/generate',
       staples: '/api/staples',

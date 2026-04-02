@@ -3,8 +3,90 @@ const { supabase, isSupabaseConfigured, getUserIdFromRequest } = require('../lib
 const { normalizeOnboardingAnswers } = require('../lib/normalizeOnboardingAnswers');
 const { buildChefCardPayload } = require('../services/buildChefCardPayload');
 const { fetchUserMealsForPlan } = require('../lib/userMealsDb');
+const { replaceUserStaples } = require('../lib/staplesDb');
 
 const router = express.Router();
+
+/**
+ * GET /api/profile/status
+ * Whether the user has completed onboarding / has profile data worth skipping splash for.
+ */
+router.get('/status', async (req, res, next) => {
+  try {
+    if (!isSupabaseConfigured) {
+      return res.status(503).json({ error: 'Profile storage not configured' });
+    }
+
+    const userId = await getUserIdFromRequest(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('onboarding_answers, chef_card')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!data) {
+      return res.json({ ok: true, hasProfile: false });
+    }
+
+    const answers = data.onboarding_answers;
+    const hasOnboardingAnswers =
+      answers != null &&
+      typeof answers === 'object' &&
+      !Array.isArray(answers) &&
+      Object.keys(answers).length > 0;
+
+    const card = data.chef_card;
+    const hasChefCard =
+      card != null &&
+      typeof card === 'object' &&
+      typeof card.buildName === 'string' &&
+      card.buildName.trim().length > 0;
+
+    const hasProfile = hasOnboardingAnswers || hasChefCard;
+
+    res.json({ ok: true, hasProfile });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/profile/reset
+ * Deletes meal plans, user meals, staples, and profile row for the authenticated user.
+ */
+router.post('/reset', async (req, res, next) => {
+  try {
+    if (!isSupabaseConfigured) {
+      return res.status(503).json({ error: 'Profile storage not configured' });
+    }
+
+    const userId = await getUserIdFromRequest(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { error: mpErr } = await supabase.from('meal_plans').delete().eq('user_id', userId);
+    if (mpErr) throw mpErr;
+
+    const { error: umErr } = await supabase.from('user_meals').delete().eq('user_id', userId);
+    if (umErr) throw umErr;
+
+    await replaceUserStaples(userId, []);
+
+    const { error: profErr } = await supabase.from('profiles').delete().eq('user_id', userId);
+    if (profErr) throw profErr;
+
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
 
 /**
  * GET /api/profile/chef-card
@@ -118,7 +200,7 @@ router.get('/meals-preview', async (req, res, next) => {
     }
 
     const { rotation, aspiration } = await fetchUserMealsForPlan(userId);
-    const topRotationMeals = rotation.slice(0, 3).map((m) => m.name);
+    const topRotationMeals = rotation.slice(0, 5).map((m) => m.name);
     const topAspirations = aspiration.slice(0, 2).map((m) => m.name);
 
     res.json({
