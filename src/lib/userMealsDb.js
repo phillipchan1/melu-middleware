@@ -14,9 +14,41 @@ function stapleToCatalogSlug(item) {
   return fromExplicit || (item.id && !isUuidLike(item.id) ? item.id : null);
 }
 
+function collectSlugsFromItems(items) {
+  const out = [];
+  for (const item of items || []) {
+    const s = stapleToCatalogSlug(item);
+    if (s) out.push(s);
+  }
+  return out;
+}
+
+/** UUID meal ids when the client only has DB meal id (no catalog slug). */
+function collectUuidIdsFromItems(items) {
+  const out = [];
+  for (const item of items || []) {
+    if (!item || item.custom) continue;
+    if (stapleToCatalogSlug(item)) continue;
+    if (item.id && isUuidLike(item.id)) out.push(item.id);
+  }
+  return [...new Set(out)];
+}
+
+function resolveMealIdForItem(item, slugToId, validUuidSet) {
+  if (!item || item.custom) return null;
+  const slug = stapleToCatalogSlug(item);
+  if (slug) {
+    return slugToId.get(slug) || null;
+  }
+  if (item.id && isUuidLike(item.id) && validUuidSet.has(item.id)) {
+    return item.id;
+  }
+  return null;
+}
+
 /**
  * Replace onboarding-sourced user_meals rows with staple + aspiration selections.
- * // SPEC GAP: staples without a matching public.meals.catalog_slug row are skipped (custom meals).
+ * Resolves meals by catalog slug and by UUID id when the client sends library meal ids only.
  */
 async function replaceOnboardingUserMeals(userId, onboardingStaples, aspirationStaples) {
   if (!supabase) return;
@@ -28,40 +60,64 @@ async function replaceOnboardingUserMeals(userId, onboardingStaples, aspirationS
     .eq('source', 'onboarding');
   if (delErr) throw delErr;
 
-  const stapleSlugs = (onboardingStaples || []).map(stapleToCatalogSlug).filter(Boolean);
-  const aspSlugs = (aspirationStaples || []).map(stapleToCatalogSlug).filter(Boolean);
+  const staples = onboardingStaples || [];
+  const aspirations = aspirationStaples || [];
+
+  const stapleSlugs = collectSlugsFromItems(staples);
+  const aspSlugs = collectSlugsFromItems(aspirations);
   const allSlugs = [...new Set([...stapleSlugs, ...aspSlugs])];
-  if (allSlugs.length === 0) return;
 
-  const { data: mealRows, error: qErr } = await supabase
-    .from('meals')
-    .select('id, catalog_slug')
-    .in('catalog_slug', allSlugs);
-  if (qErr) throw qErr;
+  const uuidFromStaples = collectUuidIdsFromItems(staples);
+  const uuidFromAsp = collectUuidIdsFromItems(aspirations);
+  const allUuids = [...new Set([...uuidFromStaples, ...uuidFromAsp])];
 
-  const slugToId = new Map((mealRows || []).map((r) => [r.catalog_slug, r.id]));
+  if (allSlugs.length === 0 && allUuids.length === 0) return;
 
+  const slugToId = new Map();
+  if (allSlugs.length > 0) {
+    const { data: mealRows, error: qErr } = await supabase
+      .from('meals')
+      .select('id, catalog_slug')
+      .in('catalog_slug', allSlugs);
+    if (qErr) throw qErr;
+    for (const r of mealRows || []) {
+      slugToId.set(r.catalog_slug, r.id);
+    }
+  }
+
+  const validUuidSet = new Set();
+  if (allUuids.length > 0) {
+    const { data: uuidRows, error: uErr } = await supabase.from('meals').select('id').in('id', allUuids);
+    if (uErr) throw uErr;
+    for (const r of uuidRows || []) {
+      validUuidSet.add(r.id);
+    }
+  }
+
+  const seen = new Set();
   const rows = [];
-  for (const slug of stapleSlugs) {
-    const mealId = slugToId.get(slug);
-    if (!mealId) continue;
+
+  function pushRow(type, mealId) {
+    const k = `${type}:${mealId}`;
+    if (seen.has(k)) return;
+    seen.add(k);
     rows.push({
       user_id: userId,
       meal_id: mealId,
-      type: 'staple',
+      type,
       source: 'onboarding',
     });
   }
-  for (const slug of aspSlugs) {
-    const mealId = slugToId.get(slug);
-    if (!mealId) continue;
-    rows.push({
-      user_id: userId,
-      meal_id: mealId,
-      type: 'aspiration',
-      source: 'onboarding',
-    });
+
+  for (const item of staples) {
+    const mid = resolveMealIdForItem(item, slugToId, validUuidSet);
+    if (mid) pushRow('staple', mid);
   }
+  for (const item of aspirations) {
+    const mid = resolveMealIdForItem(item, slugToId, validUuidSet);
+    if (mid) pushRow('aspiration', mid);
+  }
+
   if (rows.length === 0) return;
 
   const { error: insErr } = await supabase.from('user_meals').insert(rows);

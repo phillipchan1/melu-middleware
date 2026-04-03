@@ -1,11 +1,33 @@
 const express = require('express');
 const { createJsonCompletion, isAzureConfigured } = require('../services/azureOpenAI');
-const { buildPlanPrompt } = require('../prompts/planGeneration');
+const {
+  buildPlanPrompt,
+  WEEK_ORDER,
+  DEFAULT_SELECTED_NIGHTS,
+} = require('../prompts/planGeneration');
 const { supabase, isSupabaseConfigured, getUserIdFromRequest } = require('../lib/supabase');
 const { fetchUserStaples } = require('../lib/staplesDb');
 const { fetchUserMealsForPlan, stapleToCatalogSlug } = require('../lib/userMealsDb');
 
 const router = express.Router();
+
+function normalizeSelectedNightsFromBody(body) {
+  const raw = body?.selectedNights;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return [...DEFAULT_SELECTED_NIGHTS];
+  }
+  const allowed = new Set(WEEK_ORDER);
+  const filtered = raw
+    .filter((d) => typeof d === 'string' && allowed.has(d))
+    .map((d) => d);
+  const unique = [...new Set(filtered)].sort((a, b) => WEEK_ORDER.indexOf(a) - WEEK_ORDER.indexOf(b));
+  return unique.length > 0 ? unique : [...DEFAULT_SELECTED_NIGHTS];
+}
+
+function weeklyContextFromBody(body) {
+  if (body == null || typeof body.weeklyContext !== 'string') return '';
+  return body.weeklyContext.trim();
+}
 
 function getMondayOfWeek(d) {
   const date = new Date(d);
@@ -121,18 +143,38 @@ router.post('/generate', async (req, res, next) => {
       staples: staplesFromDb,
     };
 
-    const { system, user } = buildPlanPrompt(profile);
+    const selectedNights = normalizeSelectedNightsFromBody(req.body);
+    const weeklyContext = weeklyContextFromBody(req.body);
+    const todayDate =
+      typeof req.body?.todayDate === 'string' && req.body.todayDate.length > 0
+        ? req.body.todayDate.trim()
+        : '';
+    const totalMeals = selectedNights.length;
+
+    const { system, user } = buildPlanPrompt(profile, {
+      selectedNights,
+      weeklyContext,
+      todayDate,
+    });
 
     let raw;
     let meals;
+    let planSummary;
 
     const tryParse = (str) => {
       const parsed = JSON.parse(str);
-      const arr = parsed.meals || parsed;
-      if (!Array.isArray(arr) || arr.length !== 7) {
-        throw new Error('Invalid meals array');
+      const mealsArr = parsed.meals || (Array.isArray(parsed) ? parsed : null);
+      if (!mealsArr || !Array.isArray(mealsArr)) {
+        throw new Error('No meals array found');
       }
-      return arr;
+      if (mealsArr.length !== selectedNights.length) {
+        throw new Error('Invalid meals count');
+      }
+      const ps =
+        typeof parsed.planSummary === 'string' && parsed.planSummary.trim().length > 0
+          ? parsed.planSummary.trim()
+          : null;
+      return { meals: mealsArr, planSummary: ps };
     };
 
     try {
@@ -143,7 +185,7 @@ router.post('/generate', async (req, res, next) => {
         ],
         0.8
       );
-      meals = tryParse(raw);
+      ({ meals, planSummary } = tryParse(raw));
     } catch (parseErr) {
       try {
         raw = await createJsonCompletion(
@@ -153,7 +195,7 @@ router.post('/generate', async (req, res, next) => {
           ],
           0.5
         );
-        meals = tryParse(raw);
+        ({ meals, planSummary } = tryParse(raw));
       } catch (retryErr) {
         console.error('Plan generation JSON parse failed:', parseErr.message, retryErr.message);
         return res.status(500).json({
@@ -193,9 +235,134 @@ router.post('/generate', async (req, res, next) => {
       plan: {
         id: insertRow.id,
         weekStart,
+        status: 'pending',
         meals: normalizeMealsForClient(meals),
+        planSummary,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/current', async (req, res, next) => {
+  try {
+    const userId = await getUserIdFromRequest(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (!isSupabaseConfigured) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    const weekStart = getMondayOfWeek(new Date());
+    const { data, error } = await supabase
+      .from('meal_plans')
+      .select('id, meals, week_start, status')
+      .eq('user_id', userId)
+      .eq('week_start', weekStart)
+      .maybeSingle();
+
+    if (error) {
+      console.error('meal_plans current fetch failed:', error);
+      return res.status(500).json({ error: 'Failed to load plan' });
+    }
+
+    if (!data) {
+      return res.status(404).json({ error: 'No plan for this week' });
+    }
+
+    const rawMeals = data.meals;
+    const meals = normalizeMealsForClient(Array.isArray(rawMeals) ? rawMeals : []);
+    const status = data.status === 'approved' ? 'approved' : 'pending';
+
+    res.json({
+      plan: {
+        id: data.id,
+        weekStart: data.week_start,
+        status,
+        meals,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/approve', async (req, res, next) => {
+  try {
+    const userId = await getUserIdFromRequest(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (!isSupabaseConfigured) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    const raw = req.body?.planId;
+    const planId =
+      typeof raw === 'string'
+        ? raw.trim()
+        : raw != null && (typeof raw === 'number' || typeof raw === 'bigint')
+          ? String(raw)
+          : '';
+    if (!planId) {
+      return res.status(400).json({ error: 'planId required' });
+    }
+
+    const runApprove = (id) =>
+      supabase
+        .from('meal_plans')
+        .update({ status: 'approved' })
+        .eq('id', id)
+        .eq('user_id', userId)
+        .select('id')
+        .maybeSingle();
+
+    let { data, error } = await runApprove(planId);
+
+    if (error) {
+      console.error('meal_plans approve failed:', error);
+      return res.status(500).json({ error: 'Failed to approve plan' });
+    }
+
+    // Stale client id (e.g. second generate replaced the row) — approve current week's pending plan.
+    if (!data) {
+      const weekStart = getMondayOfWeek(new Date());
+      const { data: pendingRows, error: fetchErr } = await supabase
+        .from('meal_plans')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('week_start', weekStart)
+        .eq('status', 'pending')
+        .limit(1);
+
+      if (fetchErr) {
+        console.error('meal_plans approve lookup failed:', fetchErr);
+        return res.status(500).json({ error: 'Failed to approve plan' });
+      }
+
+      const fallbackId = pendingRows?.[0]?.id;
+      if (fallbackId && fallbackId !== planId) {
+        console.warn('meal_plans approve: planId mismatch, using pending row for week', weekStart);
+      }
+
+      if (fallbackId) {
+        ({ data, error } = await runApprove(fallbackId));
+        if (error) {
+          console.error('meal_plans approve fallback failed:', error);
+          return res.status(500).json({ error: 'Failed to approve plan' });
+        }
+      }
+    }
+
+    if (!data) {
+      return res.status(404).json({ error: 'Plan not found' });
+    }
+
+    res.json({ success: true, planId: data.id });
   } catch (error) {
     next(error);
   }

@@ -63,6 +63,8 @@ app.get('/api', (req, res) => {
       profileReset: '/api/profile/reset (POST)',
       profileMealsPreview: '/api/profile/meals-preview',
       planGenerate: '/api/plan/generate',
+      planCurrent: '/api/plan/current (GET)',
+      planApprove: '/api/plan/approve',
       staples: '/api/staples',
     },
   });
